@@ -1,5 +1,5 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import {ActivatedRoute, Router} from '@angular/router';
 import { FilmService } from '../Service/film.service';
 import { Filmdetails } from '../Model/filmdetails';
 import { Genre } from '../Model/genre';
@@ -7,8 +7,13 @@ import { Comment } from '../Model/comment';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { Editor, NgxEditorModule, Validators } from 'ngx-editor';
-import { FormControl, FormGroup, FormsModule } from '@angular/forms';
+import {FormBuilder, FormControl, FormGroup, FormsModule} from '@angular/forms';
 import { ComponentsForm } from '../ComponentsForm';
+import {Subscription} from "rxjs";
+import {MatDialog} from "@angular/material/dialog";
+import {UsersloginService} from "../Service/users.login.service";
+import {Commentaire} from "../Model/Commentaire";
+import {DialogLoginComponent} from "../shared/dialog-login/dialog-login.component";
 
 @Component({
   selector: 'app-details',
@@ -17,74 +22,68 @@ import { ComponentsForm } from '../ComponentsForm';
   templateUrl: './details.component.html',
   styleUrls: ['./details.component.css'],
 })
-export class DetailsComponent implements OnInit, OnDestroy, ComponentsForm {
-  // Properties
-  filmdetails!: Filmdetails;
-  comments: Comment[];
-  filmId!: number;
-  genre!: Genre[];
-
-  // Text Editor
-  editor!: Editor;
-  html: string = 'hello world';
-  form = new FormGroup({
-    editorContent: new FormControl('', Validators.required()),
-  });
-
+export class DetailsComponent implements OnInit, OnDestroy {
   formData: { nom: string; comment: string } = { nom: '', comment: '' };
-
-  verifyChangesAndConfirm(): boolean {
-    // Assuming your Editor class has valueChanges
-    return (
-      !this.editor ||
-      !this.editor.valueChanges ||
-      window.confirm('You have unsaved changes. Do you really want to leave?')
-    );
-  }
-
-  // Constructor
+  form: FormGroup;
+  isAuthenticated = false;
+  userSub: Subscription;
   constructor(
     private filmservice: FilmService,
     private activatedRoute: ActivatedRoute,
-    private sanitizer: DomSanitizer
-  ) {}
-
-  // Lifecycle Hooks
-  ngOnInit(): void {
-    this.getMovieById();
-    this.getComments();
-    this.editor = new Editor();
-    this.activatedRoute.params.subscribe((params) => {
-      const id = params['id'];
-      this.filmId = id;
+    private sanitizer: DomSanitizer,
+    private formBuilder: FormBuilder,
+    public dialog: MatDialog,
+    private router: Router,
+    protected userLoginService: UsersloginService
+  ) {
+    this.form = this.formBuilder.group({
+      nom: ['', Validators.required], // Add validators for required fields
+      comment: ['', Validators.required], // Add validators for required fields
     });
-    this.filmservice.commentsChanged.subscribe((comments) => {
-      if (comments !== null) {
-        this.comments = comments;
+  }
+
+  ngOnInit(): void {
+    this.userLoginService.autoLogin();
+    this.userSub = this.userLoginService.userSubject.subscribe((user) => {
+      console.log('user', user);
+      this.isAuthenticated = !!user;
+
+      // Automatically populate the email field if the user is authenticated
+      if (this.isAuthenticated) {
+        const userEmail = this.userLoginService.getEmailFromLocalStorage();
+        // Extract the text before '@' symbol and set it in the form data
+        this.formData.nom = userEmail.split('@')[0];
       }
     });
+    this.getPopularMoviesById();
+    this.getCommentaire();
+    this.submit_commentaire();
+    this.editor = new Editor();
+    this.activatedRoute.params.subscribe((params) => {
+      // Access the film.id parameter
+      const id = params['id'];
+      this.filmId = id;
+
+      // Use the id as needed, for example, call your service method
+      this.getCommentaireFiltred(id);
+    });
+    if (this.isAuthenticated) {
+      const userEmail = this.userLoginService.getEmailFromLocalStorage();
+      this.formData.nom = userEmail; // Set the email in the form data
+    }
   }
 
-  ngOnDestroy(): void {
-    this.editor.destroy();
-  }
-
-  // Methods
-
-  // Comment Submission
-  submitComment() {
-    const id = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
-    const comment: Comment = {
-      id: id,
-      username: this.formData.nom,
-      data: this.formData.comment,
+  submit_commentaire() {
+    const commentData = {
+      idfilm: this.filmId,
+      name: this.formData.nom,
+      commentaire: this.formData.comment,
     };
-
-    this.filmservice.addComment(this.filmId, comment).subscribe(
+    console.log(commentData);
+    this.filmservice.addComment(commentData).subscribe(
       (response) => {
         console.log('Comment added successfully', response);
-        // Refresh comments after adding a new one
-        this.getComments();
+        this.getCommentaireFiltred(this.filmId);
       },
       (error) => {
         console.error('Error adding comment', error);
@@ -92,46 +91,79 @@ export class DetailsComponent implements OnInit, OnDestroy, ComponentsForm {
     );
   }
 
-  // Editor Submission
-  submitEditorContent() {
-    const editorContent = this.html;
-    console.log('Editor content submitted:');
-  }
+  filmdetails!: Filmdetails;
+  commentaire!: Commentaire;
+  commentaireFiltred!: Commentaire[];
+  filmId!: number;
+  genre!: Genre[];
 
-  // Movie Details
-  getMovieById() {
+  //text editor
+  editor!: Editor;
+  html: string = 'hello world';
+  /*form = new FormGroup({
+    editorContent: new FormControl('', Validators.required()),
+  });*/
+
+  getPopularMoviesById() {
+    //get details
     this.filmservice
-      .getMovieById(this.activatedRoute.snapshot.params['id'])
+      .getPopularMoviesById(this.activatedRoute.snapshot.params['id'])
       .subscribe((result) => {
         this.filmdetails = result;
         this.genre = this.filmdetails.genres;
       });
   }
-
+  getCommentaire() {
+    this.filmservice.getCommentaire().subscribe((result) => {
+      this.commentaire = result;
+    });
+  }
+  getCommentaireFiltred(idFilm: number) {
+    console.log('now poe ', this.filmId);
+    this.filmservice.getCommentaireFiltred(idFilm).subscribe((result) => {
+      this.commentaireFiltred = result;
+    });
+  }
   deleteComment(id: number) {
-    this.filmservice.deleteComment(this.filmId, id).subscribe(
-      () => {
-        console.log('Comment deleted successfully');
-        // Refresh comments after deleting one
-        this.getComments();
+
+    this.filmservice.deleteComment(id).subscribe(
+      (response) => {
+        // Handle success if needed
+        console.log('Comment deleted successfully', response);
+        // Refresh comment data after adding a new comment
+        this.getCommentaireFiltred(this.filmId);
       },
       (error) => {
-        console.error('Error deleting comment', error);
+        // Handle error if needed
+        console.error('Error adding comment', error);
       }
     );
   }
 
-  getComments() {
-    this.filmservice.getComments(this.filmId).subscribe((result) => {
-      console.log(result);
-      this.comments = result;
-    });
+  ngOnDestroy(): void {
+    this.editor.destroy();
   }
 
-  // Utility
   protected readonly Editor = Editor;
-
   sanitizeHTML(html: string): SafeHtml {
     return this.sanitizer.bypassSecurityTrustHtml(html);
   }
+
+  onAddComment() {
+    if (this.isAuthenticated) {
+      this.submit_commentaire;
+    } else {
+      {
+        const dialogRef = this.dialog.open(DialogLoginComponent);
+
+        dialogRef.afterClosed().subscribe((result) => {
+          if (result) {
+            this.router.navigate(['/signup']);
+          }
+        });
+      }
+    }
+  }
+
+
 }

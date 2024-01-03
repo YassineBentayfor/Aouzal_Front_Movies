@@ -1,5 +1,6 @@
-export interface FavoritedMovie{
-  id:number,
-  idfilm:number,
-  favorited:number
+export interface FavoritedMovies {
+  movieId: number;
+  id: number;
+  email : string;
+
 }

@@ -44,6 +44,9 @@ export class UsersloginService {
         )
       );
   }
+  getEmailFromLocalStorage(): string {
+    return this.userSubject.value.email;
+  }
 
   logout() {
     this.userSubject.next(null);
